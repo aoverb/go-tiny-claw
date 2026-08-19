@@ -14,19 +14,22 @@ type AgentEngine struct {
 	provider provider.LLMProvider
 	registry tools.Registry
 
-	workDir string
+	workDir        string
+	EnableThinking bool
 }
 
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string) *AgentEngine {
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
 	return &AgentEngine{
-		provider: p,
-		registry: r,
-		workDir:  workDir,
+		provider:       p,
+		registry:       r,
+		workDir:        workDir,
+		EnableThinking: enableThinking,
 	}
 }
 
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
-	log.Printf("[Engine] 引擎启动，工作区：%s\n")
+	log.Printf("[Engine] 引擎启动，工作区：%s\n", e.workDir)
+	log.Printf("[Engine] 慢思考模式：%v\n", e.EnableThinking)
 	contextHistory := []schema.Message{
 		{
 			Role:    schema.RoleSystem,
@@ -46,16 +49,28 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 		availableTools := e.registry.GetAvailableTools()
 
-		log.Println("[Engine] 正在思考 （Reasoning）...")
+		if e.EnableThinking {
+			log.Println("[Engine][Phase 1] 慢思考 （Thinking）...")
+			ThinkingMsg, err := e.provider.Generate(ctx, contextHistory, nil)
+			if err != nil {
+				return fmt.Errorf("思考过程种发生失败：%w", err)
+			}
+			if ThinkingMsg.Content != "" {
+				fmt.Printf("[内部思考Trace]：%s\n", ThinkingMsg.Content)
+				contextHistory = append(contextHistory, *ThinkingMsg)
+			}
+		}
+
+		log.Println("[Engine] 正在行动 （Acting）...")
 		responseMsg, err := e.provider.Generate(ctx, contextHistory, availableTools)
 		if err != nil {
-			return fmt.Errorf("模型生成失败：%w", err)
+			return fmt.Errorf("行动生成失败：%w", err)
 		}
 
 		contextHistory = append(contextHistory, *responseMsg)
 
 		if responseMsg.Content != "" {
-			fmt.Printf("模型：%s\n", responseMsg.Content)
+			fmt.Printf("模型回复：%s\n", responseMsg.Content)
 		}
 
 		if len(responseMsg.ToolCalls) == 0 {
