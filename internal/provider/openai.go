@@ -17,7 +17,7 @@ type OpenAIProvider struct {
 	model  string
 }
 
-func NewZhipuAIProvider(model string) *OpenAIProvider {
+func NewZhipuOpenAIProvider(model string) *OpenAIProvider {
 	apiKey := os.Getenv("ZHIPU_API_KEY")
 	if apiKey == "" {
 		panic("请设置智谱 ZHIPU_API_KEY 环境变量")

@@ -53,7 +53,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 			log.Println("[Engine][Phase 1] 慢思考 （Thinking）...")
 			ThinkingMsg, err := e.provider.Generate(ctx, contextHistory, nil)
 			if err != nil {
-				return fmt.Errorf("思考过程种发生失败：%w", err)
+				return fmt.Errorf("思考过程中发生失败：%w", err)
 			}
 			if ThinkingMsg.Content != "" {
 				fmt.Printf("[内部思考Trace]：%s\n", ThinkingMsg.Content)
