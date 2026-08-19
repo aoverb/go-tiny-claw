@@ -55,7 +55,7 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (stri
 	}
 
 	fullPath := filepath.Join(t.workDir, input.Path)
-	if err := os.MkdirAll(fullPath, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return "", fmt.Errorf("创建父目录失败：%w", err)
 	}
 

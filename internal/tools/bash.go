@@ -52,7 +52,7 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 	timeoutContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutContext, "bash", "c", input.Command)
+	cmd := exec.CommandContext(timeoutContext, "bash", "-c", input.Command)
 	cmd.Dir = t.workDir
 
 	output, err := cmd.CombinedOutput()
