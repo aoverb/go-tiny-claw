@@ -1,13 +1,16 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/aoverb/go-tiny-claw/internal/engine"
+	"github.com/aoverb/go-tiny-claw/internal/feishu"
 	"github.com/aoverb/go-tiny-claw/internal/provider"
 	"github.com/aoverb/go-tiny-claw/internal/tools"
+	"github.com/larksuite/oapi-sdk-go/v3/core/httpserverext"
 )
 
 func main() {
@@ -29,13 +32,17 @@ func main() {
 	// 实例化引擎，开启 EnableThinking = true (开启慢思考，促使模型一次性统筹规划)
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
-	// 下发一个需要收集多源信息的任务
-	prompt := `
-    我当前目录下有 a.txt, b.txt, c.txt 三个文件。
-    为了节省时间，请你同时一次性读取这三个文件，并将它们的内容综合起来，告诉我它们分别记录了什么领域的信息。
-    `
+	bot := feishu.NewFeishuBot(eng)
+	handler := httpserverext.NewEventHandlerFunc(bot.GetEventDispatcher())
 
-	err := eng.Run(context.Background(), prompt)
+	http.HandleFunc("/webhook/event", handler)
+	http.HandleFunc("/webhook/ping", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "Pong!")
+	})
+	port := ":48080"
+	log.Printf("go-tiny-claw 飞书服务端已启动，端口%s", port)
+	err := http.ListenAndServe(port, nil)
+
 	if err != nil {
 		log.Fatalf("引擎运行崩溃: %v", err)
 	}

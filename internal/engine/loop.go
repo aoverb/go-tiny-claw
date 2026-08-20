@@ -28,7 +28,7 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 	}
 }
 
-func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
+func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
 	log.Printf("[Engine] 引擎启动，工作区：%s\n", e.workDir)
 	log.Printf("[Engine] 慢思考模式：%v\n", e.EnableThinking)
 	contextHistory := []schema.Message{
@@ -52,6 +52,9 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 		if e.EnableThinking {
 			log.Println("[Engine][Phase 1] 慢思考 （Thinking）...")
+			if reporter != nil {
+				reporter.OnThinking(ctx)
+			}
 			ThinkingMsg, err := e.provider.Generate(ctx, contextHistory, nil)
 			if err != nil {
 				return fmt.Errorf("思考过程中发生失败：%w", err)
@@ -70,7 +73,8 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 		contextHistory = append(contextHistory, *responseMsg)
 
-		if responseMsg.Content != "" {
+		if responseMsg.Content != "" && reporter != nil {
+			reporter.OnMessage(ctx, responseMsg.Content)
 			fmt.Printf("模型回复：%s\n", responseMsg.Content)
 		}
 
@@ -87,9 +91,19 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 			wg.Add(1)
 			go func(idx int, toolCall schema.ToolCall) {
 				defer wg.Done()
+				if reporter != nil {
+					reporter.OnToolCall(ctx, toolcall.Name, string(toolcall.Arguments))
+				}
 				log.Printf(" -> 执行工具：%s，参数: %s\n", toolcall.Name, string(toolcall.Arguments))
 
 				result := e.registry.Execute(ctx, toolcall)
+				if reporter != nil {
+					displayOutput := result.Output
+					if len(displayOutput) > 200 {
+						displayOutput = displayOutput[:200] + "... (已截断)"
+					}
+					reporter.OnToolCallResult(ctx, toolcall.Name, displayOutput, result.IsError)
+				}
 
 				if result.IsError {
 					log.Printf(" -> 工具执行报错：%s\n", result.Output)
