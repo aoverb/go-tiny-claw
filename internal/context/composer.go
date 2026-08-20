@@ -33,6 +33,7 @@ func (c *PromptComposer) Build() schema.Message {
 4. 无论何时你需要写代码或创建文件，都要直接使用 write_file 工具。
 5. 遇到工具执行报错时，仔细阅读 stderr，尝试自己修正命令并重试。
 6. 始终用中文回复，以便传达你的进展和想法。
+7. 所有需要实际生效的操作（写文件、改代码、执行命令等）都必须通过真实工具调用完成；禁止仅用文字描述"将要执行"的步骤，更禁止复述或引用任何内部思考草稿（例如 <tool_call> 之类的伪标签内容）。
 `)
 
 	agentsMDPath := filepath.Join(c.workDir, "AGENTS.MD")

@@ -64,7 +64,6 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 			}
 			if ThinkingMsg.Content != "" {
 				fmt.Printf("[内部思考Trace]：%s\n", ThinkingMsg.Content)
-				contextHistory = append(contextHistory, *ThinkingMsg)
 			}
 		}
 
