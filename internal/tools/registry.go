@@ -66,12 +66,12 @@ func (r *RegistryImpl) Execute(ctx context.Context, call schema.ToolCall) schema
 		return schema.ToolResult{
 			ToolCallID: call.ID,
 			IsError:    true,
-			Output:     fmt.Sprintf("调用工具 %s 时发生错误：%w", name, err),
+			Output:     fmt.Sprintf("调用工具 %s 时发生错误：%v", name, err),
 		}
 	}
 	return schema.ToolResult{
 		ToolCallID: call.ID,
 		IsError:    false,
-		Output:     fmt.Sprintf("%w", output),
+		Output:     fmt.Sprintf("%v", output),
 	}
 }

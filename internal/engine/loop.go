@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/aoverb/go-tiny-claw/internal/provider"
 	"github.com/aoverb/go-tiny-claw/internal/schema"
@@ -80,24 +81,32 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 		log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
 
-		for _, toolcall := range responseMsg.ToolCalls {
-			log.Printf(" -> 执行工具：%s，参数: %s\n", toolcall.Name, string(toolcall.Arguments))
+		var wg sync.WaitGroup
+		observationMsgSlice := make([]schema.Message, len(responseMsg.ToolCalls))
+		for idx, toolcall := range responseMsg.ToolCalls {
+			wg.Add(1)
+			go func(idx int, toolCall schema.ToolCall) {
+				defer wg.Done()
+				log.Printf(" -> 执行工具：%s，参数: %s\n", toolcall.Name, string(toolcall.Arguments))
 
-			result := e.registry.Execute(ctx, toolcall)
+				result := e.registry.Execute(ctx, toolcall)
 
-			if result.IsError {
-				log.Printf(" -> 工具执行报错：%s\n", result.Output)
-			} else {
-				log.Printf(" -> 工具执行成功（返回 %d 字节）\n", len(result.Output))
-			}
+				if result.IsError {
+					log.Printf(" -> 工具执行报错：%s\n", result.Output)
+				} else {
+					log.Printf(" -> 工具执行成功（返回 %d 字节）\n", len(result.Output))
+				}
 
-			observationMsg := schema.Message{
-				Role:       schema.RoleUser,
-				Content:    result.Output,
-				ToolCallID: toolcall.ID,
-			}
-			contextHistory = append(contextHistory, observationMsg)
+				observationMsgSlice[idx] = schema.Message{
+					Role:       schema.RoleUser,
+					Content:    result.Output,
+					ToolCallID: toolcall.ID,
+				}
+
+			}(idx, toolcall)
 		}
+		wg.Wait()
+		contextHistory = append(contextHistory, observationMsgSlice...)
 	}
 
 	return nil
