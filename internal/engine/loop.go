@@ -6,6 +6,7 @@ import (
 	"log"
 	"sync"
 
+	ctxpkg "github.com/aoverb/go-tiny-claw/internal/context"
 	"github.com/aoverb/go-tiny-claw/internal/provider"
 	"github.com/aoverb/go-tiny-claw/internal/schema"
 	"github.com/aoverb/go-tiny-claw/internal/tools"
@@ -17,6 +18,8 @@ type AgentEngine struct {
 
 	workDir        string
 	EnableThinking bool
+
+	promptComposer ctxpkg.PromptComposer
 }
 
 func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
@@ -25,17 +28,17 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 		registry:       r,
 		workDir:        workDir,
 		EnableThinking: enableThinking,
+		promptComposer: *ctxpkg.NewPromptComposer(workDir),
 	}
 }
 
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
 	log.Printf("[Engine] 引擎启动，工作区：%s\n", e.workDir)
 	log.Printf("[Engine] 慢思考模式：%v\n", e.EnableThinking)
+
+	systemPrompt := e.promptComposer.Build()
 	contextHistory := []schema.Message{
-		{
-			Role:    schema.RoleSystem,
-			Content: "You are go-tiny-claw, an expert coding assistant. You have full accesss to tools in the workspace.",
-		},
+		systemPrompt,
 		{
 			Role:    schema.RoleUser,
 			Content: userPrompt,
@@ -89,20 +92,20 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 		observationMsgSlice := make([]schema.Message, len(responseMsg.ToolCalls))
 		for idx, toolcall := range responseMsg.ToolCalls {
 			wg.Add(1)
-			go func(idx int, toolCall schema.ToolCall) {
+			go func(idx int, t schema.ToolCall) {
 				defer wg.Done()
 				if reporter != nil {
-					reporter.OnToolCall(ctx, toolcall.Name, string(toolcall.Arguments))
+					reporter.OnToolCall(ctx, t.Name, string(t.Arguments))
 				}
-				log.Printf(" -> 执行工具：%s，参数: %s\n", toolcall.Name, string(toolcall.Arguments))
+				log.Printf(" -> 执行工具：%s，参数: %s\n", t.Name, string(t.Arguments))
 
-				result := e.registry.Execute(ctx, toolcall)
+				result := e.registry.Execute(ctx, t)
 				if reporter != nil {
 					displayOutput := result.Output
 					if len(displayOutput) > 200 {
 						displayOutput = displayOutput[:200] + "... (已截断)"
 					}
-					reporter.OnToolCallResult(ctx, toolcall.Name, displayOutput, result.IsError)
+					reporter.OnToolCallResult(ctx, t.Name, displayOutput, result.IsError)
 				}
 
 				if result.IsError {
@@ -114,7 +117,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 				observationMsgSlice[idx] = schema.Message{
 					Role:       schema.RoleUser,
 					Content:    result.Output,
-					ToolCallID: toolcall.ID,
+					ToolCallID: t.ID,
 				}
 
 			}(idx, toolcall)
