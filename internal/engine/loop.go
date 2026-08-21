@@ -25,7 +25,7 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, promptComposer *ct
 		provider:       p,
 		registry:       r,
 		promptComposer: promptComposer,
-		compactor:      *ctxpkg.NewCompactor(3000, 6),
+		compactor:      *ctxpkg.NewCompactor(100000, 20),
 		EnableThinking: enableThinking,
 	}
 }

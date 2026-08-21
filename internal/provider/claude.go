@@ -48,10 +48,7 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 
 		case schema.RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
-
-			if msg.Content != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
-			}
+			blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
 
 			for _, tc := range msg.ToolCalls {
 				var inputMap map[string]any

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path/filepath"
 
 	ctxpkg "github.com/aoverb/go-tiny-claw/internal/context"
 	"github.com/aoverb/go-tiny-claw/internal/engine"
@@ -18,24 +19,24 @@ func main() {
 	}
 
 	workDir, _ := os.Getwd()
+	workDir = filepath.Join(workDir, "")
 	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
 
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewReadFileTool(workDir))
 	registry.Register(tools.NewWriteFileTool(workDir))
+	registry.Register(tools.NewEditFileTool(workDir))
 	registry.Register(tools.NewBashTool(workDir))
 
-	promptComposer := ctxpkg.NewPromptComposer(workDir)
-	// 实例化引擎 (关闭思考模式以提速)
-	eng := engine.NewAgentEngine(llmProvider, registry, promptComposer, false)
+	promptComposer := ctxpkg.NewPromptComposer(workDir, true)
+	eng := engine.NewAgentEngine(llmProvider, registry, promptComposer, true)
 	reporter := engine.NewTerminalReporter()
 
-	sessionID := "test_oom_protection_001"
+	sessionID := "task_web_server_01"
 	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
 
-	// 发起一个会导致读取大文件的恶意任务
 	prompt := `
-    请帮我把本地的代码提交并推送到远端。
+    我需要你把本目录的代码提交并推送到远端。
     `
 
 	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})

@@ -46,7 +46,7 @@ func (c *Compactor) Compact(msgs []schema.Message) []schema.Message {
 	}
 
 	for i, msg := range msgs {
-		if msg.Role == schema.RoleSystem {
+		if msg.Role == schema.RoleSystem || msg.Role == schema.RoleUser {
 			compacted = append(compacted, msg)
 			continue
 		}

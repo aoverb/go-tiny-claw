@@ -45,10 +45,11 @@ func (s *Session) GetWorkingMemory(limit int) []schema.Message {
 	}
 
 	retMsg := make([]schema.Message, limit)
-	copy(retMsg, s.history[historyCount-limit:])
+	retMsg[0] = s.history[0] // 保留第一条 User Message
+	retMsg = append(retMsg, s.history[historyCount-limit+1:]...)
 
-	for len(retMsg) > 0 && retMsg[0].Role == schema.RoleUser && retMsg[0].ToolCallID != "" {
-		retMsg = retMsg[1:]
+	for len(retMsg) > 1 && retMsg[1].Role == schema.RoleAssistant && retMsg[1].ToolCallID != "" {
+		retMsg = retMsg[2:]
 	}
 	return retMsg
 }
