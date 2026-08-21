@@ -13,37 +13,23 @@ import (
 )
 
 type AgentEngine struct {
-	provider provider.LLMProvider
-	registry tools.Registry
-
-	workDir        string
+	provider       provider.LLMProvider
+	registry       tools.Registry
 	EnableThinking bool
-
-	promptComposer ctxpkg.PromptComposer
 }
 
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, enableThinking bool) *AgentEngine {
 	return &AgentEngine{
 		provider:       p,
 		registry:       r,
-		workDir:        workDir,
 		EnableThinking: enableThinking,
-		promptComposer: *ctxpkg.NewPromptComposer(workDir),
 	}
 }
 
-func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
-	log.Printf("[Engine] 引擎启动，工作区：%s\n", e.workDir)
+func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter Reporter) error {
+	log.Printf("[Engine] 引擎启动，会话[%s]，工作区：%s\n", session.ID, session.WorkDir)
 	log.Printf("[Engine] 慢思考模式：%v\n", e.EnableThinking)
 
-	systemPrompt := e.promptComposer.Build()
-	contextHistory := []schema.Message{
-		systemPrompt,
-		{
-			Role:    schema.RoleUser,
-			Content: userPrompt,
-		},
-	}
 	turnCount := 0
 
 	// =============Main Loop!!!===============
@@ -52,13 +38,14 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 		log.Printf("============= [Turn %d] 开始 ============\n", turnCount)
 
 		availableTools := e.registry.GetAvailableTools()
+		workingMemory := session.GetWorkingMemory(6)
 
 		if e.EnableThinking {
 			log.Println("[Engine][Phase 1] 慢思考 （Thinking）...")
 			if reporter != nil {
 				reporter.OnThinking(ctx)
 			}
-			ThinkingMsg, err := e.provider.Generate(ctx, contextHistory, nil)
+			ThinkingMsg, err := e.provider.Generate(ctx, workingMemory, nil)
 			if err != nil {
 				return fmt.Errorf("思考过程中发生失败：%w", err)
 			}
@@ -68,12 +55,12 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 		}
 
 		log.Println("[Engine] 正在行动 （Acting）...")
-		responseMsg, err := e.provider.Generate(ctx, contextHistory, availableTools)
+		responseMsg, err := e.provider.Generate(ctx, workingMemory, availableTools)
 		if err != nil {
 			return fmt.Errorf("行动生成失败：%w", err)
 		}
 
-		contextHistory = append(contextHistory, *responseMsg)
+		session.Append(*responseMsg)
 
 		if responseMsg.Content != "" && reporter != nil {
 			reporter.OnMessage(ctx, responseMsg.Content)
@@ -122,7 +109,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 			}(idx, toolcall)
 		}
 		wg.Wait()
-		contextHistory = append(contextHistory, observationMsgSlice...)
+		session.Append(observationMsgSlice...)
 	}
 
 	return nil

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	ctxpkg "github.com/aoverb/go-tiny-claw/internal/context"
 	"github.com/aoverb/go-tiny-claw/internal/engine"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
@@ -63,8 +64,12 @@ func (b *FeishuBot) handleAgentRun(chatId string, prompt string) {
 		client: b.client,
 		chatId: chatId,
 	}
-
-	err := b.engine.Run(context.Background(), prompt, reporter)
+	workDir, err := os.Getwd()
+	if err != nil {
+		reporter.SendMsg(fmt.Sprintf("引擎启动发生错误：%v", err))
+	}
+	session := ctxpkg.GlobalSessionMgr.GetOrCreate("feishu-chatid-"+chatId, workDir)
+	err = b.engine.Run(context.Background(), session, reporter)
 	if err != nil {
 		reporter.SendMsg(fmt.Sprintf("引擎启动发生错误：%v", err))
 	}
