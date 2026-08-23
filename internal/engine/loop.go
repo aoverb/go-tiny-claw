@@ -163,7 +163,9 @@ func (e *AgentEngine) RunSub(ctx context.Context, textPrompt string, registry to
 【核心纪律】
 1. 你必须、且只能依靠内置工具（如 bash 的 find/grep，或 read_file）去寻找答案。绝对不允许凭空捏造或猜测！
 2. 如果你没有找到确切的答案，你必须继续使用工具深入搜索。
-3. 当且仅当你找到了确切的线索后，停止调用工具，直接输出一段纯文本作为你的终极汇报。主架构师会根据你的汇报来做下一步决策。`,
+3. 当且仅当你找到了确切的线索后，停止调用工具，直接输出一段纯文本作为你的终极汇报。主架构师会根据你的汇报来做下一步决策。
+4. 系统可能先进入“慢思考”阶段（该阶段不会提供任何工具）。在该阶段你只能输出推理计划，绝对禁止伪造 tool_call 标签、bash 代码块、find/cat/ls 等命令及其“执行结果”；真正的工具调用与结果只能发生在行动阶段。
+5. 你只能依据真实工具返回的内容下结论。如果你只得到了文件路径而尚未读取其内容，就绝对禁止凭空编造该文件的内容或其中的任何数据（例如密码）。`,
 		},
 		{
 			Role:    schema.RoleUser,
@@ -214,6 +216,7 @@ func (e *AgentEngine) RunSub(ctx context.Context, textPrompt string, registry to
 		}
 
 		compactedContext = append(compactedContext, *responseMsg)
+		contextHistory = append(contextHistory, *responseMsg)
 
 		if responseMsg.Content != "" && reporter != nil {
 			reporter.OnMessage(ctx, responseMsg.Content)
