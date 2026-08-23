@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	ctxpkg "github.com/aoverb/go-tiny-claw/internal/context"
@@ -65,6 +66,14 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 			}
 			if ThinkingMsg.Content != "" {
 				fmt.Printf("[内部思考Trace]：%s\n", ThinkingMsg.Content)
+				sanitizedThinking := sanitizeThinkingTrace(ThinkingMsg.Content)
+				compactedContext = append(compactedContext, schema.Message{
+					Role:    schema.RoleUser,
+					Content: "【内部思考参考】以下是你在慢思考阶段输出的推理草稿，仅供你制定行动计划时参考。\n\n" +
+						"【严重警告】草稿中出现的任何 bash(...)、write_file(...)、<tool_call> 等工具调用字样，都只是虚构的文字草稿，系统从未执行、也永远不会执行它们，它们不代表任何真实的工具调用或执行结果。\n" +
+						"因此，在本次行动阶段，你必须把草稿中提到的每一条待办操作，逐一通过真实的工具调用（bash、write_file、edit_file、read_file 等）重新发起执行。严禁假设草稿中的操作已经完成，严禁编造执行结果，严禁复述草稿中的伪工具调用标签。\n\n" +
+						"草稿内容如下：\n" + sanitizedThinking,
+				})
 			}
 		}
 
@@ -138,4 +147,21 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 	}
 
 	return nil
+}
+
+// sanitizeThinkingTrace 清理慢思考阶段输出中可能出现的伪工具调用标签。
+// 模型在“无工具可用的思考阶段”有时仍会虚构 <tool_call>、<arg_key> 等标签，
+// 若这些标签原样进入行动阶段的上下文，会被模型误认为已经发生的真实工具调用，
+// 进而产生“工具调用幻觉”（例如直接编造 git status 的执行结果）。
+// 这里将这些伪标签替换为醒目的中文占位符，从源头打断这种错误联想。
+func sanitizeThinkingTrace(trace string) string {
+	replacer := strings.NewReplacer(
+		"<tool_call>", "【伪工具调用标签】",
+		"</tool_call>", "【伪工具调用结束】",
+		"<arg_key>", "【伪参数名】",
+		"</arg_key>", "【伪参数名结束】",
+		"<arg_value>", "【伪参数值】",
+		"</arg_value>", "【伪参数值结束】",
+	)
+	return replacer.Replace(trace)
 }
