@@ -13,6 +13,10 @@ type Session struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
+	TotalPromptTokens     int
+	TotalCompletionTokens int
+	TotalCostCNY          float64
+
 	history []schema.Message
 	mu      sync.Mutex
 }
@@ -24,6 +28,14 @@ func NewSession(id, workDir string) *Session {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
+}
+
+func (s *Session) RecordUsage(promptTokens int, completionTokens int, costCNY float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TotalPromptTokens += promptTokens
+	s.TotalCompletionTokens += completionTokens
+	s.TotalCostCNY += costCNY
 }
 
 func (s *Session) Append(msgs ...schema.Message) {

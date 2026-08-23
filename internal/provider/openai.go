@@ -118,6 +118,13 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		Content: choice.Content,
 	}
 
+	if resp.Usage.CompletionTokens > 0 || resp.Usage.PromptTokens > 0 {
+		resultMsg.Usage = &schema.Usage{
+			CompletionTokens: int(resp.Usage.CompletionTokens),
+			PromptTokens:     int(resp.Usage.PromptTokens),
+		}
+	}
+
 	for _, tc := range choice.ToolCalls {
 		if tc.Type == "function" {
 			resultMsg.ToolCalls = append(resultMsg.ToolCalls, schema.ToolCall{

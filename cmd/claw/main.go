@@ -8,6 +8,7 @@ import (
 
 	ctxpkg "github.com/aoverb/go-tiny-claw/internal/context"
 	"github.com/aoverb/go-tiny-claw/internal/engine"
+	"github.com/aoverb/go-tiny-claw/internal/observability"
 	"github.com/aoverb/go-tiny-claw/internal/provider"
 	"github.com/aoverb/go-tiny-claw/internal/schema"
 	"github.com/aoverb/go-tiny-claw/internal/tools"
@@ -19,7 +20,7 @@ func main() {
 	}
 
 	workDir, _ := os.Getwd()
-	workDir = filepath.Join(workDir, "workspace")
+	workDir = filepath.Join(workDir, "")
 	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
 
 	registry := tools.NewRegistry()
@@ -33,26 +34,30 @@ func main() {
 	readonlyRegistry.Register(tools.NewBashTool(workDir))
 
 	promptComposer := ctxpkg.NewPromptComposer(workDir, true)
-	eng := engine.NewAgentEngine(llmProvider, registry, promptComposer, true)
+
+	sessionID := "task_push_01"
+	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
+
+	eng := engine.NewAgentEngine(observability.NewCostTracker(llmProvider, "glm-4.5-air", sess), registry, promptComposer, true)
 	reporter := engine.NewTerminalReporter()
 	registry.Register(tools.NewSubAgentTool(eng, readonlyRegistry, reporter))
 
-	sessionID := "test_dead_end_01"
-	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
-
 	prompt := `
-    我需要你在这个遗留项目里，找到那个“核心密码”。
-    为了防止污染主上下文，请你务必派出子智能体（spawn_subagent）去执行探索任务。
-    你可以让子智能体使用 bash 去查找当前目录（及其所有子目录）下名为 config.txt 的文件。
-    子智能体拿到密码向你汇报后，请你亲自使用 write_file 工具，将密码写在根目录的 answer.txt 里。
+    帮我认真分析本次工作目录下代码库修改新增的内容，commit合适的信息，然后推送到远端仓库。
     `
-
-	log.Println("\n>>> 🚀 启动多智能体协同测试...")
 
 	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
 
 	err := eng.Run(context.Background(), sess, reporter)
+
 	if err != nil {
 		log.Fatalf("引擎运行崩溃: %v", err)
 	}
+
+	log.Printf("\n================ 财务报表 ================\n")
+	log.Printf("会话 ID: %s\n", sess.ID)
+	log.Printf("总消耗 Input Tokens: %d\n", sess.TotalPromptTokens)
+	log.Printf("总消耗 Output Tokens: %d\n", sess.TotalCompletionTokens)
+	log.Printf("总计费用 (CNY): ¥%.6f\n", sess.TotalCostCNY)
+	log.Printf("==========================================\n")
 }

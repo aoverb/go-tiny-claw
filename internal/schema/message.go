@@ -10,13 +10,19 @@ const (
 	RoleAssistant Role = "assistant"
 )
 
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
 type Message struct {
 	Role    Role   `json:"role"`
 	Content string `json:"content"`
 
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 type ToolCall struct {
