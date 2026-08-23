@@ -13,20 +13,22 @@ import (
 )
 
 type AgentEngine struct {
-	provider       provider.LLMProvider
-	registry       tools.Registry
-	promptComposer *ctxpkg.PromptComposer
-	compactor      ctxpkg.Compactor
-	EnableThinking bool
+	provider        provider.LLMProvider
+	registry        tools.Registry
+	promptComposer  *ctxpkg.PromptComposer
+	compactor       ctxpkg.Compactor
+	deadEndDetector *DeadendDetector
+	EnableThinking  bool
 }
 
 func NewAgentEngine(p provider.LLMProvider, r tools.Registry, promptComposer *ctxpkg.PromptComposer, enableThinking bool) *AgentEngine {
 	return &AgentEngine{
-		provider:       p,
-		registry:       r,
-		promptComposer: promptComposer,
-		compactor:      *ctxpkg.NewCompactor(100000, 20),
-		EnableThinking: enableThinking,
+		provider:        p,
+		registry:        r,
+		promptComposer:  promptComposer,
+		compactor:       *ctxpkg.NewCompactor(100000, 20),
+		deadEndDetector: NewDeadEndDetector(),
+		EnableThinking:  enableThinking,
 	}
 }
 
@@ -88,6 +90,8 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
 
 		var wg sync.WaitGroup
+		e.deadEndDetector.SetNewTurn()
+
 		observationMsgSlice := make([]schema.Message, len(responseMsg.ToolCalls))
 		for idx, toolcall := range responseMsg.ToolCalls {
 			wg.Add(1)
@@ -108,6 +112,7 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 				}
 
 				if result.IsError {
+					e.deadEndDetector.NotifyFailedCall(t)
 					log.Printf(" -> 工具执行报错：%s\n", result.Output)
 				} else {
 					log.Printf(" -> 工具执行成功（返回 %d 字节）\n", len(result.Output))
@@ -123,6 +128,13 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		}
 		wg.Wait()
 		session.Append(observationMsgSlice...)
+		deadEndNotifyMsg := e.deadEndDetector.Summarize()
+		if deadEndNotifyMsg != "" {
+			session.Append(schema.Message{
+				Role:    schema.RoleUser,
+				Content: deadEndNotifyMsg,
+			})
+		}
 	}
 
 	return nil

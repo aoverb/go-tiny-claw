@@ -32,11 +32,11 @@ func main() {
 	eng := engine.NewAgentEngine(llmProvider, registry, promptComposer, true)
 	reporter := engine.NewTerminalReporter()
 
-	sessionID := "task_web_server_01"
+	sessionID := "test_dead_end_01"
 	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
 
 	prompt := `
-    我需要你把本目录的代码提交并推送到远端。
+    帮我认真分析本次工作目录下代码库修改新增的内容，commit合适的信息，然后推送到远端仓库。
     `
 
 	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
