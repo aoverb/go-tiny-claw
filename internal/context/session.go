@@ -57,7 +57,7 @@ func (s *Session) GetWorkingMemory(limit int) []schema.Message {
 	}
 
 	retMsg := make([]schema.Message, 0, limit)
-	retMsg[0] = s.history[0] // 保留第一条 User Message
+	retMsg = append(retMsg, s.history[0]) // 保留第一条 User Message
 	retMsg = append(retMsg, s.history[historyCount-limit+1:]...)
 
 	for len(retMsg) > 1 && retMsg[1].Role == schema.RoleAssistant && retMsg[1].ToolCallID != "" {
