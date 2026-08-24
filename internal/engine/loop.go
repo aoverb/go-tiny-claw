@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	ctxpkg "github.com/aoverb/go-tiny-claw/internal/context"
+	"github.com/aoverb/go-tiny-claw/internal/observability"
 	"github.com/aoverb/go-tiny-claw/internal/provider"
 	"github.com/aoverb/go-tiny-claw/internal/schema"
 	"github.com/aoverb/go-tiny-claw/internal/tools"
@@ -36,6 +37,15 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, promptComposer *ct
 func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter Reporter) error {
 	log.Printf("[Engine] 引擎启动，会话[%s]，工作区：%s\n", session.ID, session.WorkDir)
 	log.Printf("[Engine] 慢思考模式：%v\n", e.EnableThinking)
+	ctx, runSpan := observability.StartSpan(ctx, session.ID)
+	runSpan.AddAttribute("SessionID", session.ID)
+	runSpan.AddAttribute("WorkDir", session.WorkDir)
+
+	defer func() {
+		runSpan.EndSpan()
+		_ = observability.ExportTraceToFile(runSpan, session.WorkDir, session.ID)
+		log.Printf("📊 [Tracing] 本次任务的执行回放链路已保存至工作区的 .claw/traces 目录下\n")
+	}()
 
 	systemMsg := e.promptComposer.Build()
 
@@ -43,110 +53,122 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 
 	// =============Main Loop!!!===============
 	for {
-		turnCount++
-		log.Printf("============= [Turn %d] 开始 ============\n", turnCount)
+		turnErr := func() error {
+			turnCount++
 
-		availableTools := e.registry.GetAvailableTools()
-		workingMemory := session.GetWorkingMemory(20)
+			turnCtx, turnSpan := observability.StartSpan(ctx, fmt.Sprintf("Turn-%d", turnCount))
+			defer turnSpan.EndSpan()
+			log.Printf("============= [Turn %d] 开始 ============\n", turnCount)
 
-		var contextHistory []schema.Message
-		contextHistory = append(contextHistory, systemMsg)
-		contextHistory = append(contextHistory, workingMemory...)
+			availableTools := e.registry.GetAvailableTools()
+			workingMemory := session.GetWorkingMemory(20)
 
-		compactedContext := e.compactor.Compact(contextHistory)
+			var contextHistory []schema.Message
+			contextHistory = append(contextHistory, systemMsg)
+			contextHistory = append(contextHistory, workingMemory...)
 
-		if e.EnableThinking {
-			log.Println("[Engine][Phase 1] 慢思考 （Thinking）...")
-			if reporter != nil {
-				reporter.OnThinking(ctx)
+			compactedContext := e.compactor.Compact(contextHistory)
+
+			if e.EnableThinking {
+				log.Println("[Engine][Phase 1] 慢思考 （Thinking）...")
+				if reporter != nil {
+					reporter.OnThinking(turnCtx)
+				}
+
+				thinkingCtx, thinkingSpan := observability.StartSpan(turnCtx, "LLM.Thinking")
+				ThinkingMsg, err := e.provider.Generate(thinkingCtx, compactedContext, nil)
+				thinkingSpan.EndSpan()
+				if err != nil {
+					return fmt.Errorf("思考过程中发生失败：%w", err)
+				}
+				if ThinkingMsg.Content != "" {
+					fmt.Printf("[内部思考Trace]：%s\n", ThinkingMsg.Content)
+					sanitizedThinking := sanitizeThinkingTrace(ThinkingMsg.Content)
+					compactedContext = append(compactedContext, schema.Message{
+						Role: schema.RoleUser,
+						Content: "【内部思考参考】以下是你在慢思考阶段输出的推理草稿，仅供你制定行动计划时参考。\n\n" +
+							"【严重警告】草稿中出现的任何 bash(...)、write_file(...)、<tool_call> 等工具调用字样，都只是虚构的文字草稿，系统从未执行、也永远不会执行它们，它们不代表任何真实的工具调用或执行结果。\n" +
+							"因此，在本次行动阶段，你必须把草稿中提到的每一条待办操作，逐一通过真实的工具调用（bash、write_file、edit_file、read_file 等）重新发起执行。严禁假设草稿中的操作已经完成，严禁编造执行结果，严禁复述草稿中的伪工具调用标签。\n\n" +
+							"草稿内容如下：\n" + sanitizedThinking,
+					})
+				}
 			}
-			ThinkingMsg, err := e.provider.Generate(ctx, compactedContext, nil)
+
+			log.Println("[Engine] 正在行动 （Acting）...")
+			actionCtx, actionSpan := observability.StartSpan(turnCtx, "LLM.Thinking")
+			responseMsg, err := e.provider.Generate(actionCtx, compactedContext, availableTools)
+			actionSpan.EndSpan()
 			if err != nil {
-				return fmt.Errorf("思考过程中发生失败：%w", err)
+				return fmt.Errorf("行动生成失败：%w", err)
 			}
-			if ThinkingMsg.Content != "" {
-				fmt.Printf("[内部思考Trace]：%s\n", ThinkingMsg.Content)
-				sanitizedThinking := sanitizeThinkingTrace(ThinkingMsg.Content)
-				compactedContext = append(compactedContext, schema.Message{
-					Role: schema.RoleUser,
-					Content: "【内部思考参考】以下是你在慢思考阶段输出的推理草稿，仅供你制定行动计划时参考。\n\n" +
-						"【严重警告】草稿中出现的任何 bash(...)、write_file(...)、<tool_call> 等工具调用字样，都只是虚构的文字草稿，系统从未执行、也永远不会执行它们，它们不代表任何真实的工具调用或执行结果。\n" +
-						"因此，在本次行动阶段，你必须把草稿中提到的每一条待办操作，逐一通过真实的工具调用（bash、write_file、edit_file、read_file 等）重新发起执行。严禁假设草稿中的操作已经完成，严禁编造执行结果，严禁复述草稿中的伪工具调用标签。\n\n" +
-						"草稿内容如下：\n" + sanitizedThinking,
+
+			session.Append(*responseMsg)
+			compactedContext = append(compactedContext, *responseMsg)
+
+			if responseMsg.Content != "" && reporter != nil {
+				reporter.OnMessage(turnCtx, responseMsg.Content)
+				fmt.Printf("模型回复：%s\n", responseMsg.Content)
+			}
+
+			if len(responseMsg.ToolCalls) == 0 {
+				log.Println("[Engine] 任务完成，退出循环。")
+				return nil
+			}
+
+			log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
+
+			var wg sync.WaitGroup
+			e.deadEndDetector.SetNewTurn()
+
+			observationMsgSlice := make([]schema.Message, len(responseMsg.ToolCalls))
+			for idx, toolcall := range responseMsg.ToolCalls {
+				wg.Add(1)
+				go func(idx int, t schema.ToolCall) {
+					defer wg.Done()
+					if reporter != nil {
+						reporter.OnToolCall(turnCtx, t.Name, string(t.Arguments))
+					}
+					log.Printf(" -> 执行工具：%s，参数: %s\n", t.Name, string(t.Arguments))
+
+					result := e.registry.Execute(turnCtx, t)
+					if reporter != nil {
+						displayOutput := result.Output
+						if len(displayOutput) > 200 {
+							displayOutput = displayOutput[:200] + "... (已截断)"
+						}
+						reporter.OnToolCallResult(turnCtx, t.Name, displayOutput, result.IsError)
+					}
+
+					if result.IsError {
+						e.deadEndDetector.NotifyFailedCall(t)
+						log.Printf(" -> 工具执行报错：%s\n", result.Output)
+					} else {
+						log.Printf(" -> 工具执行成功（返回 %d 字节）\n", len(result.Output))
+					}
+
+					observationMsgSlice[idx] = schema.Message{
+						Role:       schema.RoleUser,
+						Content:    result.Output,
+						ToolCallID: t.ID,
+					}
+
+				}(idx, toolcall)
+			}
+			wg.Wait()
+			session.Append(observationMsgSlice...)
+			deadEndNotifyMsg := e.deadEndDetector.Summarize()
+			if deadEndNotifyMsg != "" {
+				session.Append(schema.Message{
+					Role:    schema.RoleUser,
+					Content: deadEndNotifyMsg,
 				})
 			}
-		}
-
-		log.Println("[Engine] 正在行动 （Acting）...")
-		responseMsg, err := e.provider.Generate(ctx, compactedContext, availableTools)
-		if err != nil {
-			return fmt.Errorf("行动生成失败：%w", err)
-		}
-
-		session.Append(*responseMsg)
-		compactedContext = append(compactedContext, *responseMsg)
-
-		if responseMsg.Content != "" && reporter != nil {
-			reporter.OnMessage(ctx, responseMsg.Content)
-			fmt.Printf("模型回复：%s\n", responseMsg.Content)
-		}
-
-		if len(responseMsg.ToolCalls) == 0 {
-			log.Println("[Engine] 任务完成，退出循环。")
-			break
-		}
-
-		log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
-
-		var wg sync.WaitGroup
-		e.deadEndDetector.SetNewTurn()
-
-		observationMsgSlice := make([]schema.Message, len(responseMsg.ToolCalls))
-		for idx, toolcall := range responseMsg.ToolCalls {
-			wg.Add(1)
-			go func(idx int, t schema.ToolCall) {
-				defer wg.Done()
-				if reporter != nil {
-					reporter.OnToolCall(ctx, t.Name, string(t.Arguments))
-				}
-				log.Printf(" -> 执行工具：%s，参数: %s\n", t.Name, string(t.Arguments))
-
-				result := e.registry.Execute(ctx, t)
-				if reporter != nil {
-					displayOutput := result.Output
-					if len(displayOutput) > 200 {
-						displayOutput = displayOutput[:200] + "... (已截断)"
-					}
-					reporter.OnToolCallResult(ctx, t.Name, displayOutput, result.IsError)
-				}
-
-				if result.IsError {
-					e.deadEndDetector.NotifyFailedCall(t)
-					log.Printf(" -> 工具执行报错：%s\n", result.Output)
-				} else {
-					log.Printf(" -> 工具执行成功（返回 %d 字节）\n", len(result.Output))
-				}
-
-				observationMsgSlice[idx] = schema.Message{
-					Role:       schema.RoleUser,
-					Content:    result.Output,
-					ToolCallID: t.ID,
-				}
-
-			}(idx, toolcall)
-		}
-		wg.Wait()
-		session.Append(observationMsgSlice...)
-		deadEndNotifyMsg := e.deadEndDetector.Summarize()
-		if deadEndNotifyMsg != "" {
-			session.Append(schema.Message{
-				Role:    schema.RoleUser,
-				Content: deadEndNotifyMsg,
-			})
+			return nil
+		}()
+		if turnErr != nil {
+			return turnErr
 		}
 	}
-
-	return nil
 }
 
 func (e *AgentEngine) RunSub(ctx context.Context, textPrompt string, registry tools.Registry, reporterAny any) (string, error) {

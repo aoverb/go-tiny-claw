@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/aoverb/go-tiny-claw/internal/observability"
 	"github.com/aoverb/go-tiny-claw/internal/schema"
 )
 
@@ -52,6 +53,10 @@ func (r *RegistryImpl) GetAvailableTools() []schema.ToolDefinition {
 }
 
 func (r *RegistryImpl) Execute(ctx context.Context, call schema.ToolCall) schema.ToolResult {
+	ctx, toolSpan := observability.StartSpan(ctx, "Tool.Execute")
+	defer toolSpan.EndSpan()
+	toolSpan.AddAttribute("tool_name", call.Name)
+	toolSpan.AddAttribute("tool_args", call.Arguments)
 	name := call.Name
 	if _, exists := r.tools[name]; !exists {
 		log.Printf("[error] 需要调用的工具'%s'不存在", name)
@@ -63,15 +68,24 @@ func (r *RegistryImpl) Execute(ctx context.Context, call schema.ToolCall) schema
 	}
 	output, err := r.tools[name].Execute(ctx, call.Arguments)
 	if err != nil {
+		toolSpan.AddAttribute("error", err.Error())
 		return schema.ToolResult{
 			ToolCallID: call.ID,
 			IsError:    true,
 			Output:     fmt.Sprintf("调用工具 %s 时发生错误：%v", name, err),
 		}
 	}
+	toolSpan.AddAttribute("output_preview", truncate(output, 100))
 	return schema.ToolResult{
 		ToolCallID: call.ID,
 		IsError:    false,
 		Output:     fmt.Sprintf("%v", output),
 	}
+}
+
+func truncate(s string, max int) string {
+	if len(s) > max {
+		return s[:max] + "..."
+	}
+	return s
 }
