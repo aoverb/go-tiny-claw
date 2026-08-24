@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -12,6 +13,10 @@ import (
 	"github.com/aoverb/go-tiny-claw/internal/provider"
 	"github.com/aoverb/go-tiny-claw/internal/schema"
 	"github.com/aoverb/go-tiny-claw/internal/tools"
+)
+
+var (
+	ErrTaskEnd = errors.New("任务完成。")
 )
 
 type AgentEngine struct {
@@ -112,7 +117,7 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 
 			if len(responseMsg.ToolCalls) == 0 {
 				log.Println("[Engine] 任务完成，退出循环。")
-				return nil
+				return ErrTaskEnd
 			}
 
 			log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
@@ -166,6 +171,9 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 			return nil
 		}()
 		if turnErr != nil {
+			if turnErr == ErrTaskEnd {
+				return nil
+			}
 			return turnErr
 		}
 	}
