@@ -56,7 +56,7 @@ func (s *Session) GetWorkingMemory(limit int) []schema.Message {
 		return retMsg
 	}
 
-	retMsg := make([]schema.Message, limit)
+	retMsg := make([]schema.Message, 0, limit)
 	retMsg[0] = s.history[0] // 保留第一条 User Message
 	retMsg = append(retMsg, s.history[historyCount-limit+1:]...)
 
