@@ -100,7 +100,7 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 			}
 
 			log.Println("[Engine] 正在行动 （Acting）...")
-			actionCtx, actionSpan := observability.StartSpan(turnCtx, "LLM.Thinking")
+			actionCtx, actionSpan := observability.StartSpan(turnCtx, "LLM.Action")
 			responseMsg, err := e.provider.Generate(actionCtx, compactedContext, availableTools)
 			actionSpan.EndSpan()
 			if err != nil {
