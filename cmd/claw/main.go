@@ -20,7 +20,7 @@ func main() {
 	}
 
 	workDir, _ := os.Getwd()
-	workDir = filepath.Join(workDir, "")
+	workDir = filepath.Join(workDir, "workspace")
 	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
 
 	registry := tools.NewRegistry()
@@ -33,17 +33,20 @@ func main() {
 	readonlyRegistry.Register(tools.NewReadFileTool(workDir))
 	readonlyRegistry.Register(tools.NewBashTool(workDir))
 
-	promptComposer := ctxpkg.NewPromptComposer(workDir, true)
+	promptComposer := ctxpkg.NewPromptComposer(workDir, false)
 
 	sessionID := "task_push_01"
 	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
 
-	eng := engine.NewAgentEngine(observability.NewCostTracker(llmProvider, "glm-4.5-air", sess), registry, promptComposer, true)
+	eng := engine.NewAgentEngine(observability.NewCostTracker(llmProvider, "glm-4.5-air", sess), registry, promptComposer, false)
 	reporter := engine.NewTerminalReporter()
 	registry.Register(tools.NewSubAgentTool(eng, readonlyRegistry, reporter))
 
 	prompt := `
-    帮我认真分析本次工作目录下代码库修改新增的内容，commit合适的信息，然后推送到远端仓库。
+    为了加快执行速度，请你在一轮回复中，【同时并行】完成以下两件事：
+    1. 使用 bash 工具执行 'sleep 2 && echo "系统环境检查完毕"'
+    2. 使用 write_file 工具，在当前目录下创建一个 'trace_test.md'，内容写上 "测试并发的写入"。
+    请确保你是分别调用两个不同的工具，不要试图把它们合并成一个命令！
     `
 
 	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
